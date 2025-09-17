@@ -1,0 +1,54 @@
+# Load necessary libraries
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(ggtext)
+
+
+theme_set(
+    theme_minimal(base_family = "Helvetica") +
+        theme(
+            legend.title = element_blank(),
+            legend.text = element_text(size = 20),
+            axis.title = element_text(size = 20, face = "bold", color = "black"),
+            axis.text.x = element_text(size = 16, color = "black"),
+            axis.text.y = element_text(size = 16, color = "black"),
+            plot.title = element_blank(),
+            plot.caption = element_blank(), 
+            panel.border = element_blank(), 
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(), 
+            plot.margin = unit(c(0, 0, 0, 0), "cm")
+        )
+)
+
+n_proposals <- 30
+mean_goodness <- 48000
+sd_goodness <- 5000
+
+corr_prediction_actual <- 0.4
+
+set.seed(020522)
+
+predictions <- rnorm(n_proposals, mean_goodness, sd_goodness)
+
+noise_sd <- 3600
+noise <- rnorm(n_proposals, 0, noise_sd)
+actual <- predictions * 0.4 + noise * 0.6 + (mean_goodness - 0.4 * mean_goodness)
+
+cor(predictions, actual)
+
+df <- data.frame(
+    proposal_id = 1:n_proposals,
+    predictions = predictions,
+    actual = actual)
+
+df <- df %>% 
+    mutate(selected = ifelse(rank(desc(predictions)) < 8, TRUE, FALSE))
+
+# # Create a sequence of performance values
+# performance_values <- seq(30000, 70000, by = 100)
+
+ggplot(df, aes(x = actual))+
+    geom_density(aes(fill = selected)) +
+    geom_histogram(aes(y = after_stat(density), fill = selected), position = 'identity')

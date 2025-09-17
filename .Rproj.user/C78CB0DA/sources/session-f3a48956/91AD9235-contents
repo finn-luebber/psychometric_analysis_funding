@@ -1,0 +1,147 @@
+# Required packages
+library(ggplot2)
+library(dplyr)
+library(truncnorm)  # for dtruncnorm
+
+set.seed(2025)
+
+# ---------- Parameters ----------
+mu_true <- 50000        # mean of true distribution
+sd_true <- 5000         # sd of true distribution
+r <- .999                 # desired cor(predicted, true)
+
+# compute error SD to achieve cor r:
+# r = sd_true / sqrt(sd_true^2 + sd_error^2)  => sd_error^2 = sd_true^2*(1/r^2 - 1)
+sd_error <- sqrt(sd_true^2 * (1 / r^2 - 1))
+
+# split quantile on true distribution (top 25% vs bottom 75%)
+cutoff_true <- qnorm(0.75, mean = mu_true, sd = sd_true)
+
+# x grid for predicted-values axis
+x <- seq(mu_true - 4*sd_true, mu_true + 4*sd_true, length.out = 1200)
+
+# ---------- Build conditional true-value grids & densities ----------
+# low (bottom 75%): truncated normal from -Inf .. cutoff_true
+t_low <- seq(mu_true - 5*sd_true, cutoff_true, length.out = 600)
+dt_low <- t_low[2] - t_low[1]
+f_t_low <- dtruncnorm(t_low, a = -Inf, b = cutoff_true, mean = mu_true, sd = sd_true)
+# note: dtruncnorm is already a conditional density (integrates to 1 over its support)
+
+# high (top 25%): truncated normal from cutoff_true .. Inf
+t_high <- seq(cutoff_true, mu_true + 5*sd_true, length.out = 600)
+dt_high <- t_high[2] - t_high[1]
+f_t_high <- dtruncnorm(t_high, a = cutoff_true, b = Inf, mean = mu_true, sd = sd_true)
+
+# ---------- Convolution: compute predicted|group densities by numerical integration ----------
+# For speed, compute kernel matrix using outer and then matrix multiplication
+
+# Low group: f_pred_low(x) = integral dnorm(x | t, sd_error)*f_t_low(t) dt
+K_low <- outer(x, t_low, function(xx, tt) dnorm(xx, mean = tt, sd = sd_error))
+dens_pred_low <- as.numeric(K_low %*% (f_t_low * dt_low))   # vector length(x)
+
+# High group:
+K_high <- outer(x, t_high, function(xx, tt) dnorm(xx, mean = tt, sd = sd_error))
+dens_pred_high <- as.numeric(K_high %*% (f_t_high * dt_high))
+
+# ---------- Put into dataframe for plotting ----------
+dens_df <- data.frame(
+    x = rep(x, 2),
+    y = c(dens_pred_high, dens_pred_low),
+    actual_group = rep(c("High Actual", "Low Actual"), each = length(x))
+)
+
+# Determine predicted marginal SD and threshold (top 25% of predicted ranking)
+# Predicted marginal mean is mu_true; marginal variance = var(true)+var(error)
+sd_pred_marginal <- sqrt(sd_true^2 + sd_error^2)
+threshold <- qnorm(0.75, mean = mu_true, sd = sd_pred_marginal)
+
+# Add outcome labels based on x relative to threshold
+dens_df <- dens_df %>%
+    mutate(fill_side = ifelse(x >= threshold, "Accept", "Reject"),
+           outcome = case_when(
+               actual_group == "High Actual" & fill_side == "Accept" ~ "Hit",
+               actual_group == "High Actual" & fill_side == "Reject" ~ "Miss",
+               actual_group == "Low Actual"  & fill_side == "Accept" ~ "False Alarm",
+               actual_group == "Low Actual"  & fill_side == "Reject" ~ "Correct Rejection"
+           )) %>%
+    mutate(outcome = factor(outcome, levels = c("Hit","Miss","False Alarm","Correct Rejection")))
+
+# ---------- Compute conditional means & variances for d' ----------
+# mean of predicted | group = E_t[ E[pred|t] ] = E_t[t] (since pred|t has mean t)
+mean_true_low  <- sum(t_low * f_t_low) * dt_low
+mean_true_high <- sum(t_high * f_t_high) * dt_high
+
+var_true_low  <- sum((t_low - mean_true_low)^2  * f_t_low)  * dt_low
+var_true_high <- sum((t_high - mean_true_high)^2 * f_t_high) * dt_high
+
+# predicted variance within group = var(true|group) + sd_error^2
+var_pred_low  <- var_true_low  + sd_error^2
+var_pred_high <- var_true_high + sd_error^2
+
+mean_pred_low  <- mean_true_low
+mean_pred_high <- mean_true_high
+
+# pooled sd for d'
+pooled_sd <- sqrt((var_pred_low + var_pred_high) / 2)
+dprime <- (mean_pred_high - mean_pred_low) / pooled_sd
+
+# ---------- y position for d' line/text ----------
+y_peak <- max(dens_pred_high, dens_pred_low)
+y_line <- y_peak * 1.05
+x_text <- (mean_pred_low + mean_pred_high) / 2
+
+# ---------- Plot ----------
+p <- ggplot() +
+    # ribbons: draw High first then Low so stacking is controlled
+    geom_ribbon(data = filter(dens_df, actual_group == "High Actual"),
+                aes(x = x, ymin = 0, ymax = y, fill = outcome),
+                color = NA) +
+    geom_ribbon(data = filter(dens_df, actual_group == "Low Actual"),
+                aes(x = x, ymin = 0, ymax = y, fill = outcome),
+                color = NA) +
+    # outlines for regions (use actual_group color); hide legend for this layer
+    geom_ribbon(data = dens_df,
+                aes(x = x, ymin = 0, ymax = y, group = interaction(outcome, actual_group), color = actual_group),
+                fill = NA, size = 0.6, show.legend = FALSE) +
+    # density lines (this creates the color legend for groups)
+    geom_line(data = dens_df, aes(x = x, y = y, color = actual_group), size = 1.05) +
+    # threshold
+    geom_vline(xintercept = threshold, linetype = "dashed", size = 0.9) +
+    # d' connector line & text
+    geom_segment(aes(x = mean_pred_low, xend = mean_pred_high, y = y_line, yend = y_line), color = "black", size = 1.1) +
+    geom_text(aes(x = x_text, y = y_line * 1.02, label = paste0("d' = ", round(dprime, 2))),
+              inherit.aes = FALSE, size = 5) +
+    # scale definitions
+    scale_fill_manual(values = c(
+        "Hit" = scales::alpha("red", 0.6),
+        "Miss" = "white",
+        "False Alarm" = scales::alpha("blue", 0.6),
+        "Correct Rejection" = "white"
+    )) +
+    scale_color_manual(values = c("High Actual" = "red", "Low Actual" = "blue")) +
+    # adjust fill legend keys so white entries show colored borders
+    guides(
+        fill = guide_legend(override.aes = list(
+            colour = c("red","red","blue","blue"),   # border colors for keys
+            alpha  = c(0.6, 1, 0.6, 1),
+            size   = c(0.6, 0.6, 0.6, 0.6)
+        ), nrow = 1),
+        color = guide_legend(nrow = 1)
+    ) +
+    labs(title = "Mixture / Truncated-Normal SDT-style Diagram",
+         subtitle = paste0("True split at ", round(cutoff_true,0), " (top 25% cutoff). r = ", r),
+         x = "Predicted value",
+         y = "Density",
+         color = "Actual Group",
+         fill = "Outcome") +
+    theme_minimal(base_size = 13) +
+    theme(legend.position = "bottom", legend.box = "vertical")
+
+# show plot
+print(p)
+
+# ---------- Print computed stats for reference ----------
+cat("Cutoff (true 75%):", round(cutoff_true,1), "\n")
+cat("Mean predicted | Low  :", round(mean_pred_low,1), "  Var:", round(var_pred_low,1), "\n")
+cat("Mean predicted | High :", round(mean_pred_high,1), "  Var:", round(var_pred_high,1), "\n")
+cat("Pooled SD used for d':", round(pooled_sd,1), "  d' =", round(dprime,3), "\n")
