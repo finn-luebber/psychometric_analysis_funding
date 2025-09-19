@@ -2,17 +2,22 @@ library(shiny)
 library(ggplot2)
 library(ggExtra)
 library(dplyr)
+library(patchwork)
+
 
 ui <- fluidPage(
-    titlePanel("Idea Quality Simulation with Selection Rectangles"),
+    titlePanel("BCG model illustration"),
 
     sidebarLayout(
         sidebarPanel(
-            numericInput("N", "Number of ideas:", value = 5000, min = 1000, max = 1e6, step = 1000),
+            numericInput("N", "Number of ideas:", value = 1000, min = 100, max = 1e6, step = 100),
             numericInput("mu", "Mean (predictions):", value = 0, step = 0.1),
             numericInput("sigma", "SD (predictions):", value = 1, min = 0.1, step = 0.1),
-            sliderInput("rho", "Predictor–truth correlation:", min = 0, max = 1, value = 0.7, step = 0.05),
+            sliderInput("rho", "Predictor–truth correlation:", min = 0, max = 1, value = 0.5, step = 0.05),
             sliderInput("topPerc", "Select Top % of predictions:", min = 1, max = 100, value = 20, step = 1),
+            sliderInput("topPercY", "Select Top % of truth:", min = 1, max = 100, value = 50, step = 1),
+
+            checkboxInput("connect_cutoffs", "Y cutoff should equal X cutoff", value = F),
             checkboxInput("showBoxes", "Show category rectangles", value = TRUE),
             actionButton("go", "Resample")
         ),
@@ -27,9 +32,29 @@ ui <- fluidPage(
 
 server <- function(input, output) {
 
+    unselected_color = "gray60"
+    selected_color = "darkgoldenrod2"
+
+    cut_off <- reactiveValues(prediction = NULL, truth = NULL)
+
+    my_theme <- theme_minimal(base_family = "Helvetica") +
+        theme(
+            legend.title = element_blank(),
+            legend.text = element_text(size = 20),
+            axis.title = element_text(size = 20, face = "bold", color = "black"),
+            axis.text.x = element_text(size = 16, color = "black"),
+            axis.text.y = element_text(size = 16, color = "black"),
+            plot.title = element_blank(),
+            plot.caption = element_blank(),
+            panel.border = element_blank(),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank()
+            # plot.margin = unit(c(0, 0, 0, 0), "cm")
+        )
+
     # Generate predictions and truths on resample
     data_gen <- eventReactive(input$go, {
-        set.seed(Sys.time())
+        set.seed(020522)
         N <- input$N
         mu <- input$mu
         sigma <- input$sigma
@@ -43,16 +68,38 @@ server <- function(input, output) {
         data.frame(prediction = X, truth = T)
     }, ignoreNULL = FALSE)
 
-    output$scatterPlot <- renderPlot({
+    observe({
+        df <- data_gen()
+        perc <- input$topPerc
+        cut_off$prediction <- quantile(df$prediction, probs = 1 - perc/100)
+
+        if(input$connect_cutoffs){
+            cut_off$truth <- quantile(df$truth, probs = 1 - perc/100)
+        } else {
+            perc_y <- input$topPercY
+            cut_off$truth <- quantile(df$truth, probs = 1 - perc_y/100)
+        }
+    })
+
+    data_selected <- reactive({
         df <- data_gen()
 
         # Top % cutoff
-        perc <- input$topPerc
-        pred_cut <- quantile(df$prediction, probs = 1 - perc/100)
-        truth_cut <- quantile(df$truth, probs = 1 - perc/100)
+        pred_cut <- cut_off$prediction
+        truth_cut <- cut_off$truth
 
         # Selection based on prediction
         df$selected <- df$prediction >= pred_cut
+
+        df
+    })
+
+    output$scatterPlot <- renderPlot({
+        df <- data_selected()
+
+        pred_cut <- cut_off$prediction
+        truth_cut <- cut_off$truth
+
         mean_selected <- if (any(df$selected)) mean(df$prediction[df$selected]) else NA
 
         # Finite boundaries
@@ -74,13 +121,17 @@ server <- function(input, output) {
             vjust = c(1,0,1,0)   # top for top rectangles, bottom for bottom
         )
 
+        xlims <- range(df$prediction)
+        ylims <- range(df$truth)
 
         # Base scatterplot with two colors
         p <- ggplot(df, aes(x = prediction, y = truth, color = selected)) +
             geom_point(alpha = 0.6, size = 0.8) +
-            scale_color_manual(values = c("FALSE" = "gray60", "TRUE" = "darkgoldenrod2")) +
+            scale_color_manual(values = c("FALSE" = unselected_color, "TRUE" = selected_color)) +
             labs(x = "Predicted goodness", y = "True goodness", color = "Selected") +
-            theme_minimal(base_size = 20)+
+            xlim(xlims) +
+            ylim(ylims) +
+            my_theme +
             theme(legend.position = "none")
 
         # Add grey rectangles and internal labels if toggled
@@ -98,11 +149,47 @@ server <- function(input, output) {
             geom_hline(yintercept = truth_cut, linetype = "dashed", color = "green4", linewidth = 1)
 
         if (!is.na(mean_selected)) {
-            p <- p + geom_vline(xintercept = mean_selected, color = "darkgoldenrod2", linewidth = 1) +
+            p <- p + geom_vline(xintercept = mean_selected, color = selected_color, linewidth = 1) +
             annotate("text", label = "Mean selected", x = mean_selected + 0.02*x_max, y = y_min + 0.02 * y_max, hjust = 0, vjust = 0, size = 5, color = "darkgoldenrod2")
         }
 
-        ggMarginal(p, type = "density", margins = "y", groupColour = TRUE, groupFill = TRUE)
+        # p <- ggMarginal(p, type = "density", margins = "y", groupColour = TRUE, groupFill = TRUE)
+
+        # browser()
+
+        dens <- density(df$prediction, n = 1024)
+        dens_df <- data.frame(x = dens$x, y = dens$y)
+
+        dens_left  <- subset(dens_df, x <= pred_cut)
+        dens_right <- subset(dens_df, x >= pred_cut)
+
+        p_top <- ggplot() +
+            geom_area(data = dens_left, aes(x, y), fill = unselected_color, alpha = 0.6) +
+            geom_area(data = dens_right, aes(x, y), fill = selected_color, alpha = 0.6) +
+            xlim(xlims) +
+            theme_void()
+
+        p_right <- ggplot(df, aes(truth, fill = selected)) +
+            stat_density(geom = "area", position = "identity", alpha = 0.5, trim = TRUE) +
+            xlim(ylims) + # xlim not ylim because of axis flipping
+            coord_flip() +
+            scale_fill_manual(values = c("FALSE" = unselected_color, "TRUE" = selected_color)) +
+            theme_void() +
+            theme(legend.position = "none")
+
+        # p_top / p + plot_layout(heights = c(1, 4))
+
+        # --- layout design ---
+        # layout <- "
+        # A
+        # CB
+        # "
+
+        # p_top + p_right + p +
+        #     plot_layout(design = layout, heights = c(1, 4), widths = c(4, 1))
+
+        p_top + plot_spacer() + p + p_right +
+            plot_layout(heights = c(1, 4), widths = c(4, 1))
     })
 
     # Confusion matrix table
