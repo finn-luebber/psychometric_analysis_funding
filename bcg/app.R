@@ -24,7 +24,8 @@ ui <- fluidPage(
             # numericInput("mu", "Mean (predictions):", value = 0, step = 0.1),
             # numericInput("sigma", "SD (predictions):", value = 1, min = 0.1, step = 0.1),
             sliderInput("rho", "Predictor–truth correlation:", min = 0, max = 1, value = 0.5, step = 0.05),
-            actionButton("go", "Resample")
+            actionButton("go", "Resample"),
+            textOutput("BCG_result")
 
 
         ),
@@ -125,7 +126,6 @@ server <- function(input, output, session) {
 
         # Top % cutoff
         pred_cut <- cut_off$prediction
-        # truth_cut <- cut_off$truth
 
         # Selection based on prediction
         df$selected <- df$prediction >= pred_cut
@@ -159,6 +159,18 @@ server <- function(input, output, session) {
             Category = names(tbl),
             Count = as.integer(tbl),
             Percent = round(100 * as.integer(tbl)/N, 1)
+        )
+    })
+
+    output$BCG_result <- renderText({
+        number_selected <- input$topPerc * input$N
+        mean_selected <- if (any(data_selected()$selected)) mean(data_selected()$prediction[data_selected()$selected]) else NA
+
+        delta_U <- number_selected * input$rho * input$SD_y * mean_selected - input$N * input$costs
+
+
+        paste0("delta U = ",
+               format(delta_U, big.mark = ",", decimal.mark = ".", nsmall = 2, scientific = FALSE)
         )
     })
 

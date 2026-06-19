@@ -1,7 +1,22 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-manuscript/
-figures/
-static_code/
+# Ignore everything by default
+*
+
+# Track these
+!.gitignore
+!README.md
+!.Rproj
+!*.Rproj
+!renv.lock
+!.Rprofile
+!create_output_plot.R
+
+# renv bootstrap (for replication), but not the machine-specific library
+!renv/
+renv/library/
+!renv/activate.R
+!renv/settings.json
+
+# Shiny app — only app.R, not the shinyapps.io deployment files
+!bcg/
+bcg/*
+!bcg/app.R

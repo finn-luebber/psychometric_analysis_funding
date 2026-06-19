@@ -1,4 +1,16 @@
-create_output_plot <- function(df, truth_col, pred_cut, truth_cut, my_theme, show_xlab, show_ylab, unselected_color, selected_color, showScatter = T, showContour = F, showLine = T, showBoxes = T, marginal_y = TRUE){
+create_output_plot <- function(df, truth_col, rho, pred_cut, truth_cut, my_theme, show_xlab, show_ylab, unselected_color, selected_color, showScatter = T, showContour = F, showLine = T, showBoxes = T, marginal_y = TRUE, static = F){
+
+    if(static){
+        size_box_numbers <- 3
+        size_box_text <- 12
+        box_alpha = .3
+
+    } else{
+        size_box_numbers <- 5
+        size_box_text <- 22
+        box_alpha = .5
+    }
+
     # Turn string/column name into symbol
     truth_sym <- sym(truth_col)
 
@@ -17,67 +29,7 @@ create_output_plot <- function(df, truth_col, pred_cut, truth_cut, my_theme, sho
     # Base scatterplot with two colors
     p <- ggplot(df, aes(x = prediction, y = !!truth_sym))
 
-    ## SCATTER
-    if (showScatter) {
-        p <- p + geom_point(aes(color = selected), alpha = 0.6, size = 0.8)
-    }
-
-    ## CONTOUR LINES
-    if(showContour){
-
-        # Extract contour paths
-        contours <- ggplot_build(
-            ggplot(df, aes(prediction, !!truth_sym)) +
-                stat_density_2d(geom = "path", bins = 6) # pick number of contours
-        )$data[[1]]
-
-        # Add color depending on x threshold
-        contours <- contours %>%
-            mutate(color_side = ifelse(x < pred_cut, "FALSE", "TRUE"))
-
-        p <- p + geom_path(
-            data = contours,
-            aes(x = x, y = y, group = interaction(level, piece), color = color_side),
-            linewidth = 1
-        )
-    }
-
-    ## REGRESSION LINE
-    if(showLine){
-        p <- p + geom_smooth(method = "lm", color = "purple")
-    }
-
-    ## GENERAL SETTINGS
-    p <- p +
-        scale_color_manual(values = c("FALSE" = unselected_color, "TRUE" = selected_color)) +
-        # labs(x = "Predictor score (Z)", y = "Project net benefit (Z)", color = "Selected") +
-        xlim(xlims) +
-        ylim(ylims) +
-        my_theme +
-        theme(legend.position = "none")
-
-    if(show_xlab){
-        p <- p + labs(x = "Predictor score (Z)")
-    } else{
-        p <- p + labs(x = "")+
-            theme(
-                axis.title.x = element_blank(),
-                axis.text.x = element_blank(),
-                axis.ticks.x = element_blank()
-            )
-
-    }
-
-    if(show_ylab){
-        p <- p + labs(y = "Project net benefit (Z)")
-
-    } else{
-        p <- p + labs(y = "")
-
-    }
-
-
-    ## 2x2 TABLE
+    ## 2x2 TABLE (background)
     if (showBoxes) {
 
         # Classify each point
@@ -117,37 +69,80 @@ create_output_plot <- function(df, truth_col, pred_cut, truth_cut, my_theme, sho
                 type = ifelse(label %in% c("Hit", "Correct rejection"), "Correct", "Incorrect")
             )
 
-
-
-
         p <- p +
             geom_rect(
                 data = rects,
                 aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,
                     fill = type),
-                alpha = .5,
+                alpha = box_alpha,
                 inherit.aes = FALSE, color = NA
             ) +
-            geom_richtext(
-                data = rects,
-                aes(
-                    x = x_text,
-                    y = y_text,
-                    label = paste0(
-                        "<span style='font-size:22pt; color:#403d39; font-weight:bold;'>", label, "</span><br>",
-                        Percent, "%<br>",
-                        Count
-                    )
-                ),
-                inherit.aes = FALSE,
-                size = 5,        # this sets the default size for the non-styled text
-                color = "#0d1b2a",
-                fill = NA,       # remove background box
-                label.color = NA # remove border
-            )+
-            scale_fill_manual(values = c("Correct" = "#377EB8", "Incorrect" = "#E6550D")) #+
+            scale_fill_manual(values = c("Correct" = "#377EB8", "Incorrect" = "#E6550D"))
+
     }
 
+    p <- p + annotate("text", x = x_min, y = y_max, hjust = 0, vjust = 1, label = paste0("Validity: ", rho))
+
+
+    ## SCATTER
+    if (showScatter) {
+        p <- p + geom_point(aes(color = selected), alpha = 0.6, size = 0.8)
+    }
+
+    ## CONTOUR LINES
+    if(showContour){
+
+        # Extract contour paths
+        contours <- ggplot_build(
+            ggplot(df, aes(prediction, !!truth_sym)) +
+                stat_density_2d(geom = "path", bins = 6) # pick number of contours
+        )$data[[1]]
+
+        # Add color depending on x threshold
+        contours <- contours %>%
+            mutate(color_side = ifelse(x < pred_cut, "FALSE", "TRUE"))
+
+        p <- p + geom_path(
+            data = contours,
+            aes(x = x, y = y, group = interaction(level, piece), color = color_side),
+            linewidth = 1
+        )
+    }
+
+    ## REGRESSION LINE
+    if(showLine){
+        p <- p + geom_smooth(method = "lm", color = "purple")
+    }
+
+    ## GENERAL SETTINGS
+    p <- p +
+        scale_color_manual(values = c("FALSE" = unselected_color, "TRUE" = selected_color)) +
+        # labs(x = "Predictor score (Z)", y = "Project net benefit (Z)", color = "Selected") +
+        xlim(xlims) +
+        ylim(ylims) +
+        coord_cartesian(clip = "off") +
+        my_theme +
+        theme(legend.position = "none")
+
+    if(show_xlab){
+        p <- p + labs(x = "Predictor score (Z)")
+    } else{
+        p <- p + labs(x = "")+
+            theme(
+                axis.title.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.ticks.x = element_blank()
+            )
+
+    }
+
+    if(show_ylab){
+        p <- p + labs(y = "Project net benefit (Z)")
+
+    } else{
+        p <- p + labs(y = "")
+
+    }
 
     ## ADD LINES
 
@@ -159,7 +154,9 @@ create_output_plot <- function(df, truth_col, pred_cut, truth_cut, my_theme, sho
     # Y cutoff label (anchored at left of plot)
     y_lab_x <- xlims[1]   # left of plot
     y_side_offset <- 0.05 * diff(ylims)
-    y_lab_y <- if (truth_cut > mean(ylims)) truth_cut - y_side_offset else truth_cut + y_side_offset
+    # y_lab_y <- if (truth_cut > mean(ylims)) truth_cut - y_side_offset else truth_cut + y_side_offset
+    y_lab_y <- truth_cut
+    vjust_y <- if (truth_cut > mean(ylims)) 1 else 0
 
 
     p <- p +
@@ -175,16 +172,43 @@ create_output_plot <- function(df, truth_col, pred_cut, truth_cut, my_theme, sho
             "text",
             x = y_lab_x, y = y_lab_y,
             label = "cutoff (goal)",
-            hjust = 0, color = "green4"
+            hjust = 0, vjust = vjust_y, color = "green4"
         )
 
 
     if (!is.na(mean_selected)) {
         p <- p + geom_vline(xintercept = mean_selected, color = selected_color, linewidth = 1) +
-            annotate("text", label = paste0(expression(paste(over(,"Z"))), "[x]"), parse = TRUE, x = mean_selected + 0.02*x_max, y = y_min, hjust = 0, vjust = .8, size = 5, color = selected_color)+
+            annotate("text", label = paste0(expression(paste(over(,"Z"))), "[x]"), parse = TRUE, x = mean_selected + 0.02*x_max, y = y_min, hjust = 0, vjust = 0, size = 5, color = selected_color)+
             geom_hline(yintercept = mean_truth, color = "darkred", linewidth = 1) +
-            annotate("text", label = paste0(expression(paste(over(,"Z"))), "[y]"), parse = TRUE, y = mean_truth + 0.02*y_max, x = x_min + 0.02 * x_max, hjust = 0, vjust = 0, size = 5, color = "darkred")
+            annotate("text", label = paste0(expression(paste(over(,"Z"))), "[y]"), parse = TRUE, y = mean_truth - 0.02*y_max, x = x_min + 0.02 * x_max, hjust = 0, vjust = 0, size = 5, color = "darkred")
     }
+
+
+
+    ## 2x2 TABLE (text)
+    if (showBoxes) {
+        p <- p +
+            geom_richtext(
+                data = rects,
+                aes(
+                    x = x_text,
+                    y = y_text,
+                    label = paste0(
+                        paste0("<span style='font-size:", size_box_text , "pt; color:#403d39; font-weight:bold;'>"), label, "</span><br>",
+                        Percent, "%<br>",
+                        Count
+                    )
+                ),
+                inherit.aes = FALSE,
+                size = size_box_numbers,        # this sets the default size for the non-styled text
+                color = "#0d1b2a",
+                fill = NA,       # remove background box
+                label.color = NA # remove border
+            )
+    }
+
+
+
 
 
     ## MARGINAL PLOTS
@@ -228,8 +252,9 @@ update_output_plot <- function(input, output, data_selected, truth_col, cut_off,
 
         pred_cut <- cut_off$prediction
         truth_cut <- cut_off$truth
+        rho = input$rho
 
-        create_output_plot(df, truth_col, pred_cut, truth_cut, my_theme, show_xlab = T, show_ylab = T, unselected_color, selected_color, showScatter = input$showScatter, showContour = input$showContour, showLine = input$showLine, showBoxes = input$showBoxes, marginal_y = TRUE)
+        create_output_plot(df, truth_col, rho, pred_cut, truth_cut, my_theme, show_xlab = T, show_ylab = T, unselected_color, selected_color, showScatter = input$showScatter, showContour = input$showContour, showLine = input$showLine, showBoxes = input$showBoxes, marginal_y = TRUE)
 
 
 
