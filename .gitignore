@@ -8,7 +8,6 @@
 !*.Rproj
 !renv.lock
 !.Rprofile
-!create_output_plot.R
 
 # renv bootstrap (for replication), but not the machine-specific library
 !renv/
@@ -20,3 +19,5 @@ renv/library/
 !bcg/
 bcg/*
 !bcg/app.R
+!bcg/create_output_plot.R
+.Rproj.user

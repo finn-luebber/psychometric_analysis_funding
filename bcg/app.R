@@ -7,7 +7,7 @@ library(ggtext)
 library(dplyr)
 library(patchwork)
 
-source(here::here("create_output_plot.R"))
+source("create_output_plot.R")
 
 ui <- fluidPage(
     useShinyjs(),
@@ -19,11 +19,12 @@ ui <- fluidPage(
         sidebar = sidebar(
 
             numericInput("N", "Number of applications:", value = 1000, min = 100, max = 1e6, step = 100),
-            sliderInput("costs", "Cost of individual application", min = 0, max = 100000, value = 1000, step = 100),
-            numericInput("SD_y", "Standard Deviation of net project benefits (SD_y)", value = 10000, min = 0),
+            sliderInput("costs", "Cost of individual application", min = 0, max = 100000, value = 1750, step = 50),
+            numericInput("SD_y", "Standard Deviation of net project benefits (SD_y)", value = 50000, min = 0),
             # numericInput("mu", "Mean (predictions):", value = 0, step = 0.1),
             # numericInput("sigma", "SD (predictions):", value = 1, min = 0.1, step = 0.1),
-            sliderInput("rho", "Predictor–truth correlation:", min = 0, max = 1, value = 0.5, step = 0.05),
+            sliderInput("rho", "Predictor–truth correlation:", min = 0, max = 1, value = 0.4, step = 0.05),
+            numericInput("seed", label = "Seed", value = 123),
             actionButton("go", "Resample"),
             textOutput("BCG_result")
 
@@ -38,8 +39,8 @@ ui <- fluidPage(
                        card_body(
                            layout_column_wrap(
                                width = 1/2,
-                               sliderInput("topPerc", "Cutoff: Select Top % of predictions (X):", min = 1, max = 100, value = 20, step = 1),
-                               sliderInput("topPercY", "Goal: Select Top % of truth (Y):", min = 1, max = 100, value = 50, step = 1),
+                               sliderInput("topPerc", "Cutoff: Select Top % of predictions (X):", min = 1, max = 100, value = 4, step = 1),
+                               sliderInput("topPercY", "Goal: Select Top % of truth (Y):", min = 1, max = 100, value = 4, step = 1),
                            ),
                            checkboxInput("connect_cutoffs", "Y cutoff should equal X cutoff", value = F),
                            plotOutput("scatterPlot", height = 600),
@@ -94,7 +95,7 @@ server <- function(input, output, session) {
 
     # Generate predictions and truths on resample
     data_gen <- eventReactive(input$go, {
-        set.seed(020522)
+        set.seed(input$seed)
         N <- input$N
         mu <- 0 # input$mu
         sigma <- 1 # input$sigma
@@ -163,9 +164,13 @@ server <- function(input, output, session) {
     })
 
     output$BCG_result <- renderText({
-        number_selected <- input$topPerc * input$N
-        mean_selected <- if (any(data_selected()$selected)) mean(data_selected()$prediction[data_selected()$selected]) else NA
-
+        number_selected <- input$topPerc/100 * input$N
+        mean_selected <- {
+            preds <- data_selected()$prediction
+            sel   <- data_selected()$selected
+            z     <- (preds - mean(preds)) / sd(preds)
+            if (any(sel)) mean(z[sel]) else NA
+        }
         delta_U <- number_selected * input$rho * input$SD_y * mean_selected - input$N * input$costs
 
 
