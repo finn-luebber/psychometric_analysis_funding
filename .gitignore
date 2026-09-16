@@ -15,9 +15,12 @@ renv/library/
 !renv/activate.R
 !renv/settings.json
 
-# Shiny app — only app.R, not the shinyapps.io deployment files
-!bcg/
-bcg/*
-!bcg/app.R
-!bcg/create_output_plot.R
+!app.R
+!setup.R
+!R/
+!scripts/
+!tests/
+/figures
+/figures/*
+
 .Rproj.user
