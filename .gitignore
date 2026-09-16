@@ -18,9 +18,16 @@ renv/library/
 !app.R
 !setup.R
 !R/
+!R/**
 !scripts/
+!scripts/**
 !tests/
+!tests/**
 /figures
-/figures/*
+/figures/fig_bcg_sr04_br04.svg
+/figures/fig_bcg_sr04_br04.png
+/figures/fig_triplet_sr04_br20.svg
+/figures/fig_triplet_sr04_br20.png
+
 
 .Rproj.user
